@@ -2507,14 +2507,16 @@ function EmpVendas({ data, save, loggedEmp }) {
   const totalApproved = (data.sales || []).filter(s => s.employeeId === loggedEmp.id).reduce((a, b) => a + b.value, 0);
   const totalPending = (data.pendingSales || []).filter(s => s.employeeId === loggedEmp.id).reduce((a, b) => a + b.value, 0);
 
-  const submitSale = () => {
+  const submitSale = async () => {
     if (!form.value) return;
-    const ns = { id: uid(), employeeId: loggedEmp.id, employeeName: loggedEmp.name, ...form, value: parseFloat(form.value), approved: false };
-    save({ ...data, pendingSales: [...(data.pendingSales || []), ns] });
-    setShowModal(false);
-    setForm({ value: "", description: "", date: today() });
-    setSuccess(true);
-    setTimeout(() => setSuccess(false), 3500);
+    try {
+      const created = await api.submitSale({ employeeId: loggedEmp.id, employeeName: loggedEmp.name, value: parseFloat(form.value), description: form.description, date: form.date });
+      save({ ...data, pendingSales: [...(data.pendingSales || []), created] });
+      setShowModal(false);
+      setForm({ value: "", description: "", date: today() });
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3500);
+    } catch (e) { alert(e?.message || "Erro ao enviar venda"); }
   };
 
   return (
