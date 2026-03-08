@@ -75,7 +75,48 @@ const api = {
   getCategories: () => apiFetch("/categories"),
   createCategory: (data) => apiFetch("/categories", { method: "POST", body: data }),
   deleteCategory: (id) => apiFetch(`/categories/${id}`, { method: "DELETE" }),
+
+  // Notification Settings
+  getNotifSettings: () => apiFetch("/notification-settings"),
+  updateNotifSettings: (data) => apiFetch("/notification-settings", { method: "PUT", body: data }),
+
+  // Push Subscriptions
+  subscribePush: (subscription) => apiFetch("/push/subscribe", { method: "POST", body: { subscription } }),
+  unsubscribePush: (endpoint) => apiFetch("/push/subscribe", { method: "DELETE", body: { endpoint } }),
 };
+
+// VAPID public key for push subscription
+const VAPID_PUBLIC_KEY = "BAJ1Ld7ppG66j6hKV5vSAp7B1xp4JWLsbNFdhNWeNGtS69x9ge1HGSUTpbfMLXzLZA-iMpfjTNC4LQEkWxaxG4E";
+
+// Helper: register Service Worker + subscribe to push
+async function registerPushSubscription() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return null;
+  try {
+    const reg = await navigator.serviceWorker.register("/sw.js");
+    await navigator.serviceWorker.ready;
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return null;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: Uint8Array.from(atob(VAPID_PUBLIC_KEY.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0)),
+    });
+    const subJSON = sub.toJSON();
+    await api.subscribePush({ endpoint: subJSON.endpoint, keys: subJSON.keys });
+    return sub;
+  } catch (e) { console.error("Push registration error:", e); return null; }
+}
+
+async function unregisterPushSubscription() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await api.unsubscribePush(sub.endpoint);
+      await sub.unsubscribe();
+    }
+  } catch (e) { console.error("Push unregister error:", e); }
+}
 
 // ── defaultData (fallback offline / loading) ──────────────────────────────
 const defaultData = {
@@ -833,6 +874,7 @@ function Sidebar({ role, empName, page, setPage, onLogout, pendingCount }) {
     { id: "despesas", label: "Despesas", icon: icons.expense },
     { id: "prompts", label: "Prompts", icon: icons.image },
     { id: "aprovacoes", label: "Aprovações", icon: icons.bell, badge: pendingCount },
+    { id: "notificacoes", label: "Notificações", icon: icons.wifi },
   ];
   const empNav = [
     { id: "prompts", label: "Meus Prompts", icon: icons.image },
@@ -876,7 +918,7 @@ function BottomNav({ role, page, setPage, onLogout, pendingCount }) {
     { id: "funcionarios", label: "Equipe", icon: icons.users },
     { id: "aprovacoes", label: "Aprovações", icon: icons.bell, badge: pendingCount },
     { id: "despesas", label: "Gastos", icon: icons.expense },
-    { id: "prompts", label: "Prompts", icon: icons.image },
+    { id: "notificacoes", label: "Notif.", icon: icons.wifi },
   ];
   const empNav = [
     { id: "prompts", label: "Prompts", icon: icons.image },
@@ -2747,6 +2789,184 @@ function Aprovacoes({ data, save }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// NOTIFICAÇÕES — Configuração de Push Notifications
+// ══════════════════════════════════════════════════════════════════════════
+function Notificacoes() {
+  const [settings, setSettings] = useState({ title: "💰 Nova Venda Recebida!", subtitle: "{employeeName} registrou R$ {value}", enabled: true });
+  const [pushStatus, setPushStatus] = useState("checking"); // checking, active, inactive, unsupported
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    // Load settings
+    (async () => {
+      try {
+        const s = await api.getNotifSettings();
+        setSettings(s);
+      } catch { }
+    })();
+    // Check push status
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setPushStatus("unsupported");
+    } else {
+      navigator.serviceWorker.ready.then(async (reg) => {
+        const sub = await reg.pushManager.getSubscription();
+        setPushStatus(sub ? "active" : "inactive");
+      }).catch(() => setPushStatus("inactive"));
+    }
+  }, []);
+
+  const saveSettings = async () => {
+    setSaving(true);
+    try {
+      const updated = await api.updateNotifSettings(settings);
+      setSettings(updated);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) { alert(e?.message || "Erro ao salvar"); }
+    setSaving(false);
+  };
+
+  const togglePush = async () => {
+    if (pushStatus === "active") {
+      await unregisterPushSubscription();
+      setPushStatus("inactive");
+    } else {
+      const sub = await registerPushSubscription();
+      setPushStatus(sub ? "active" : "inactive");
+    }
+  };
+
+  const previewTitle = settings.title
+    .replace("{employeeName}", "Maria Silva")
+    .replace("{value}", "350,00")
+    .replace("{description}", "Pacote Premium");
+  const previewBody = settings.subtitle
+    .replace("{employeeName}", "Maria Silva")
+    .replace("{value}", "350,00")
+    .replace("{description}", "Pacote Premium");
+
+  return (
+    <>
+      <div className="page-header">
+        <div>
+          <div className="page-title">Notificações</div>
+          <div className="page-sub">Configure as notificações push para vendas pendentes</div>
+        </div>
+      </div>
+
+      <div className="page-content">
+        {/* Push Status */}
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-title">Status das Notificações Push</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{
+                width: 10, height: 10, borderRadius: "50%",
+                background: pushStatus === "active" ? "var(--green)" : pushStatus === "unsupported" ? "var(--red)" : "var(--muted)",
+                boxShadow: pushStatus === "active" ? "0 0 8px var(--green)" : "none",
+              }} />
+              <span style={{ fontSize: 14, fontWeight: 600 }}>
+                {pushStatus === "active" && "Push ativado"}
+                {pushStatus === "inactive" && "Push desativado"}
+                {pushStatus === "checking" && "Verificando..."}
+                {pushStatus === "unsupported" && "Não suportado neste navegador"}
+              </span>
+            </div>
+            {pushStatus !== "unsupported" && pushStatus !== "checking" && (
+              <button className={`btn ${pushStatus === "active" ? "btn-danger" : "btn-primary"} btn-sm`} onClick={togglePush}>
+                {pushStatus === "active" ? "Desativar" : "Ativar Push"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Settings */}
+        <div className="card">
+          <div className="card-title">Configurar Notificação</div>
+
+          <div className="form-group">
+            <label className="form-label">Título da Notificação</label>
+            <input
+              className="form-input"
+              value={settings.title}
+              onChange={e => setSettings(s => ({ ...s, title: e.target.value }))}
+              placeholder="Ex: 💰 Nova Venda!"
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Subtítulo / Corpo</label>
+            <input
+              className="form-input"
+              value={settings.subtitle}
+              onChange={e => setSettings(s => ({ ...s, subtitle: e.target.value }))}
+              placeholder="Ex: {employeeName} registrou R$ {value}"
+            />
+          </div>
+
+          {/* Variables */}
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: 600, marginBottom: 8 }}>Variáveis Disponíveis</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {["{employeeName}", "{value}", "{description}"].map(v => (
+                <span key={v} className="tag" style={{ cursor: "pointer", fontSize: 11 }}
+                  onClick={() => {
+                    // Copy to clipboard
+                    navigator.clipboard?.writeText(v);
+                  }}>
+                  {v}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Enable/Disable */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+            <label style={{ fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={settings.enabled}
+                onChange={e => setSettings(s => ({ ...s, enabled: e.target.checked }))}
+                style={{ accentColor: "var(--accent)", width: 16, height: 16 }}
+              />
+              Enviar notificação quando funcionário registrar venda
+            </label>
+          </div>
+
+          {/* Save */}
+          <button className="btn btn-primary" onClick={saveSettings} disabled={saving}>
+            {saving ? "Salvando..." : saved ? "✓ Salvo!" : "Salvar Configurações"}
+          </button>
+        </div>
+
+        {/* Preview */}
+        <div className="card" style={{ marginTop: 20 }}>
+          <div className="card-title">Preview da Notificação</div>
+          <div style={{
+            background: "var(--surface2)", border: "1px solid var(--border2)",
+            borderRadius: 14, padding: 18, display: "flex", gap: 14, alignItems: "flex-start",
+          }}>
+            <div style={{
+              width: 42, height: 42, borderRadius: 10, flexShrink: 0,
+              background: "linear-gradient(135deg, rgba(245,166,35,0.2), rgba(255,101,53,0.15))",
+              border: "1px solid rgba(245,166,35,0.3)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 20,
+            }}>🔔</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: "'Outfit',sans-serif", fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{previewTitle}</div>
+              <div style={{ fontSize: 13, color: "var(--muted2)" }}>{previewBody}</div>
+              <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 6 }}>agora</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
 // MAIN APP
 // ══════════════════════════════════════════════════════════════════════════
 export default function App() {
@@ -2769,14 +2989,14 @@ export default function App() {
   // ── Auto-login se já tiver token válido ───────────────────────────────
   useEffect(() => {
     if (getToken() && !role && !loading) {
-      // Token existe mas role não está definido → tenta restaurar sessão
-      // O backend pode expor GET /auth/me para retornar { role, employee }
       (async () => {
         try {
           const me = await apiFetch("/auth/me");
           setRole(me.role);
           setLoggedEmp(me.employee || null);
           setPage(me.role === "owner" ? "dashboard" : "prompts");
+          // Auto-register push for admin
+          if (me.role === "owner") registerPushSubscription();
         } catch { clearToken(); }
       })();
     }
@@ -2786,6 +3006,8 @@ export default function App() {
     setRole(r);
     setLoggedEmp(emp || null);
     setPage(r === "owner" ? "dashboard" : "prompts");
+    // Register push for admin on login
+    if (r === "owner") registerPushSubscription();
   };
 
   const handleLogout = () => {
@@ -2820,6 +3042,7 @@ export default function App() {
           {page === "despesas" && role === "owner" && <Despesas data={data} save={save} />}
           {page === "prompts" && <Prompts data={data} save={save} isOwner={role === "owner"} />}
           {page === "aprovacoes" && role === "owner" && <Aprovacoes data={data} save={save} />}
+          {page === "notificacoes" && role === "owner" && <Notificacoes />}
           {page === "emp-vendas" && role === "employee" && <EmpVendas data={data} save={save} loggedEmp={loggedEmp} />}
         </div>
         {isMobile && (
