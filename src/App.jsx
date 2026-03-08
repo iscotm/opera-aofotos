@@ -716,34 +716,42 @@ function useStore() {
   const [data, setData] = useState(defaultData);
   const [loading, setLoading] = useState(true);
 
+  const fetchState = useCallback(async () => {
+    try {
+      if (getToken()) {
+        const state = await api.getState();
+        setData({ ...defaultData, ...state });
+        return true;
+      }
+    } catch { }
+    return false;
+  }, []);
+
   useEffect(() => {
     (async () => {
-      try {
-        // 1) Tenta buscar do backend (requer token JWT no localStorage)
-        if (getToken()) {
-          const state = await api.getState();
-          setData({ ...defaultData, ...state });
-          setLoading(false);
-          return;
-        }
-      } catch { }
-
-      // 2) Fallback: window.storage (modo offline / dev sem backend)
-      try {
-        const r = await window.storage.get("operacao_data");
-        if (r?.value) setData(JSON.parse(r.value));
-      } catch { }
+      const ok = await fetchState();
+      if (!ok) {
+        // Fallback: window.storage (modo offline / dev sem backend)
+        try {
+          const r = await window.storage.get("operacao_data");
+          if (r?.value) setData(JSON.parse(r.value));
+        } catch { }
+      }
       setLoading(false);
     })();
-  }, []);
+
+    // Poll every 15s for real-time updates (owner sees employee submissions)
+    const interval = setInterval(() => {
+      if (getToken()) fetchState();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [fetchState]);
 
   // save: persiste localmente E sincroniza com backend se tiver token
   const save = useCallback(async (next) => {
     setData(next);
     // Fallback offline
     try { await window.storage.set("operacao_data", JSON.stringify(next)); } catch { }
-    // Sync backend — chame a rota específica no componente para operações granulares
-    // O save() aqui serve só para manter o estado React imediato e o fallback local.
   }, []);
 
   return [data, save, loading];
