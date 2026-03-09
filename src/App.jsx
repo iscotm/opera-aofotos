@@ -682,7 +682,12 @@ const css = `
     .card { padding: 16px; }
     .emp-card { padding: 16px; }
     .emp-grid { grid-template-columns: 1fr; }
-    .prompt-grid { grid-template-columns: 1fr; }
+    .prompt-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .prompt-card img, .prompt-img-placeholder { aspect-ratio: 1; }
+    .prompt-body { padding: 10px; }
+    .prompt-name { font-size: 11px; margin-bottom: 6px; }
+    .prompt-text { font-size: 10px; max-height: 50px; padding: 6px 8px; margin-bottom: 8px; }
+    .prompt-card .btn-sm { font-size: 10px; padding: 5px 6px; gap: 3px; }
     .page-header > button { width: 100%; justify-content: center; }
     .login-card { padding: 32px 22px; }
     .login-logo { font-size: 26px; }
@@ -2237,6 +2242,7 @@ function Prompts({ data, save, isOwner }) {
   const [copied, setCopied] = useState(null);
   const [activeCategory, setActiveCategory] = useState("all");
   const [dragOver, setDragOver] = useState(false);
+  const [editPromptId, setEditPromptId] = useState(null);
 
   const copyPrompt = (id, text) => {
     // Try modern clipboard API first, fallback to execCommand
@@ -2262,14 +2268,27 @@ function Prompts({ data, save, isOwner }) {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const addPrompt = async () => {
+  const savePrompt = async () => {
     if (!form.promptText) return;
+    const payload = { title: form.title, promptText: form.promptText, imageUrl: form.imageUrl, categoryId: form.categoryId || null };
     try {
-      const created = await api.createPrompt({ title: form.title, promptText: form.promptText, imageUrl: form.imageUrl, categoryId: form.categoryId || null });
-      save({ ...data, prompts: [...data.prompts, created] });
+      if (editPromptId) {
+        const updated = await api.updatePrompt(editPromptId, payload);
+        save({ ...data, prompts: data.prompts.map(p => p.id === editPromptId ? { ...p, ...updated } : p) });
+      } else {
+        const created = await api.createPrompt(payload);
+        save({ ...data, prompts: [...data.prompts, created] });
+      }
       setShowPromptModal(false);
+      setEditPromptId(null);
       setForm({ title: "", promptText: "", imageUrl: "", categoryId: "" });
-    } catch (e) { alert(e?.message || "Erro ao criar prompt"); }
+    } catch (e) { alert(e?.message || "Erro ao salvar prompt"); }
+  };
+
+  const openEditPrompt = (p) => {
+    setEditPromptId(p.id);
+    setForm({ title: p.title || "", promptText: p.promptText || "", imageUrl: p.imageUrl || "", categoryId: p.categoryId || "" });
+    setShowPromptModal(true);
   };
 
   const delPrompt = async (id) => {
@@ -2362,7 +2381,7 @@ function Prompts({ data, save, isOwner }) {
             {isOwner ? "Gerenciar Categorias" : "Ver Categorias"}
           </button>
           {isOwner && (
-            <button className="btn btn-primary" onClick={() => setShowPromptModal(true)}>
+            <button className="btn btn-primary" onClick={() => { setEditPromptId(null); setForm({ title: "", promptText: "", imageUrl: "", categoryId: "" }); setShowPromptModal(true); }}>
               <Icon path={icons.plus} size={14} /> Novo Prompt
             </button>
           )}
@@ -2442,9 +2461,14 @@ function Prompts({ data, save, isOwner }) {
                         {copied === p.id ? "Copiado!" : "Copiar Prompt"}
                       </button>
                       {isOwner && (
-                        <button className="btn btn-danger btn-sm btn-icon" onClick={() => delPrompt(p.id)}>
-                          <Icon path={icons.trash} size={13} />
-                        </button>
+                        <>
+                          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openEditPrompt(p)} title="Editar">
+                            <Icon path={icons.edit} size={13} />
+                          </button>
+                          <button className="btn btn-danger btn-sm btn-icon" onClick={() => delPrompt(p.id)} title="Excluir">
+                            <Icon path={icons.trash} size={13} />
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -2459,7 +2483,7 @@ function Prompts({ data, save, isOwner }) {
       {showPromptModal && (
         <div className="modal-bg" onClick={() => setShowPromptModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-title">Novo Prompt</div>
+            <div className="modal-title">{editPromptId ? "Editar Prompt" : "Novo Prompt"}</div>
             <div className="form-group">
               <label className="form-label">Título</label>
               <input className="form-input" placeholder="Ex: Foto profissional feminina..."
@@ -2538,8 +2562,8 @@ function Prompts({ data, save, isOwner }) {
               )}
             </div>
             <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={() => setShowPromptModal(false)}>Cancelar</button>
-              <button className="btn btn-primary" onClick={addPrompt}>Salvar</button>
+              <button className="btn btn-ghost" onClick={() => { setShowPromptModal(false); setEditPromptId(null); setForm({ title: "", promptText: "", imageUrl: "", categoryId: "" }); }}>Cancelar</button>
+              <button className="btn btn-primary" onClick={savePrompt}>{editPromptId ? "Salvar Alterações" : "Salvar"}</button>
             </div>
           </div>
         </div>
