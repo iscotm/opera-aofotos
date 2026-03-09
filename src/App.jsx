@@ -513,7 +513,7 @@ const css = `
     font-family: 'JetBrains Mono', monospace;
     background: rgba(5,8,13,0.8); padding: 10px 12px;
     border-radius: 8px; border: 1px solid var(--border);
-    max-height: 80px; overflow-y: auto; word-break: break-word;
+    max-height: 80px; overflow: hidden; word-break: break-word;
   }
 
   /* ══════════════════════════
@@ -2435,7 +2435,7 @@ function Prompts({ data, save, isOwner }) {
               return (
                 <div key={p.id} className="prompt-card">
                   {p.imageUrl
-                    ? <img src={p.imageUrl} alt={p.title} style={{ width: "100%", aspectRatio: "1", objectFit: "cover" }} />
+                    ? <img src={p.imageUrl} alt={p.title} draggable={false} style={{ width: "100%", objectFit: "cover", userSelect: "none", pointerEvents: "none" }} />
                     : <div className="prompt-img-placeholder"><Icon path={icons.image} size={40} /></div>
                   }
                   <div className="prompt-body">
