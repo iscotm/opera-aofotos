@@ -2328,6 +2328,19 @@ function Prompts({ data, save, isOwner }) {
     setDragOver(false);
   };
 
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) handleImageUpload(file);
+        return;
+      }
+    }
+  };
+
   const filtered = activeCategory === "all"
     ? data.prompts
     : activeCategory === "uncategorized"
@@ -2467,9 +2480,11 @@ function Prompts({ data, save, isOwner }) {
             </div>
             <div className="form-group">
               <label className="form-label">Imagem de Referência</label>
-              <input type="text" className="form-input" placeholder="URL da imagem (https://...)"
+              <input type="text" className="form-input" placeholder="URL da imagem (https://...) ou cole uma imagem (Ctrl+V)"
                 value={typeof form.imageUrl === "string" && !form.imageUrl.startsWith("data:") ? form.imageUrl : ""}
-                onChange={e => setForm({ ...form, imageUrl: e.target.value })} style={{ marginBottom: 8 }} />
+                onChange={e => setForm({ ...form, imageUrl: e.target.value })}
+                onPaste={handlePaste}
+                style={{ marginBottom: 8 }} />
               <label
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
@@ -2488,12 +2503,37 @@ function Prompts({ data, save, isOwner }) {
                 <div style={{ fontSize: 13, fontWeight: 600, color: dragOver ? "var(--accent)" : "var(--text)" }}>
                   {dragOver ? "Solte a imagem aqui" : "Arraste uma imagem ou clique para enviar"}
                 </div>
-                <div style={{ fontSize: 11, color: "var(--muted)" }}>PNG, JPG, WEBP</div>
+                <div style={{ fontSize: 11, color: "var(--muted)" }}>PNG, JPG, WEBP — ou cole com Ctrl+V</div>
                 <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageUpload} />
               </label>
               {form.imageUrl && (
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
-                  <span style={{ fontSize: 11, color: "var(--green)" }}>✓ Imagem carregada</span>
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 12, marginTop: 12,
+                  padding: 10, background: "var(--surface2)", borderRadius: 10,
+                  border: "1px solid rgba(34,197,94,0.25)"
+                }}>
+                  <img
+                    src={form.imageUrl}
+                    alt="Preview"
+                    style={{
+                      width: 56, height: 56, objectFit: "cover", borderRadius: 8,
+                      border: "1px solid rgba(255,255,255,0.1)", flexShrink: 0
+                    }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--green)", marginBottom: 2 }}>✓ Imagem carregada</div>
+                    <div style={{ fontSize: 11, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {form.imageUrl.startsWith("data:") ? "Upload local" : form.imageUrl}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-danger btn-sm btn-icon"
+                    onClick={() => setForm(f => ({ ...f, imageUrl: "" }))}
+                    style={{ flexShrink: 0 }}
+                  >
+                    <Icon path={icons.trash} size={13} />
+                  </button>
                 </div>
               )}
             </div>
@@ -2728,27 +2768,36 @@ function EmpVendas({ data, save, loggedEmp }) {
 function Aprovacoes({ data, save }) {
   const pending = (data.pendingSales || []);
 
-  const approve = (id) => {
+  const approve = async (id) => {
     const sale = pending.find(s => s.id === id);
     if (!sale) return;
-    save({
-      ...data,
-      pendingSales: pending.filter(s => s.id !== id),
-      sales: [...(data.sales || []), { ...sale, approved: true }],
-    });
+    try {
+      const res = await api.approveSale(id);
+      save({
+        ...data,
+        pendingSales: pending.filter(s => s.id !== id),
+        sales: [...(data.sales || []), res.approved || { ...sale, approved: true }],
+      });
+    } catch (e) { alert(e?.message || "Erro ao aprovar venda"); }
   };
 
-  const reject = (id) => {
-    save({ ...data, pendingSales: pending.filter(s => s.id !== id) });
+  const reject = async (id) => {
+    try {
+      await api.rejectSale(id);
+      save({ ...data, pendingSales: pending.filter(s => s.id !== id) });
+    } catch (e) { alert(e?.message || "Erro ao rejeitar venda"); }
   };
 
-  const approveAll = () => {
+  const approveAll = async () => {
     if (!pending.length) return;
-    save({
-      ...data,
-      pendingSales: [],
-      sales: [...(data.sales || []), ...pending.map(s => ({ ...s, approved: true }))],
-    });
+    try {
+      await api.approveAll();
+      save({
+        ...data,
+        pendingSales: [],
+        sales: [...(data.sales || []), ...pending.map(s => ({ ...s, approved: true }))],
+      });
+    } catch (e) { alert(e?.message || "Erro ao aprovar todas"); }
   };
 
   // Group by employee
