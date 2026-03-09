@@ -473,6 +473,7 @@ const css = `
     backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
     animation: bgfade 0.2s ease;
   }
+  @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes bgfade { from { opacity: 0; } to { opacity: 1; } }
   .modal {
     background: linear-gradient(170deg, #111d2a 0%, #090f18 100%);
@@ -3098,6 +3099,7 @@ export default function App() {
   const [page, setPage] = useState("dashboard");
   const [data, save, loading] = useStore();
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [authChecking, setAuthChecking] = useState(!!getToken());
 
   // ── Inject viewport meta ──────────────────────────────────────────────
   useEffect(() => {
@@ -3121,7 +3123,10 @@ export default function App() {
           // Auto-register push for admin
           if (me.role === "owner") registerPushSubscription();
         } catch { clearToken(); }
+        setAuthChecking(false);
       })();
+    } else if (!getToken()) {
+      setAuthChecking(false);
     }
   }, [loading]);
 
@@ -3140,6 +3145,16 @@ export default function App() {
   };
 
   const pendingCount = (data.pendingSales || []).length;
+
+  // Show nothing while checking auth to prevent login flash
+  if (authChecking) return (
+    <>
+      <style>{css}</style>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "var(--bg)" }}>
+        <div style={{ width: 32, height: 32, border: "3px solid rgba(240,165,0,0.2)", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+      </div>
+    </>
+  );
 
   if (!role) return (
     <>
