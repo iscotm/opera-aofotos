@@ -2236,6 +2236,7 @@ function Prompts({ data, save, isOwner }) {
   const [catForm, setCatForm] = useState({ name: "", color: CAT_COLORS[0] });
   const [copied, setCopied] = useState(null);
   const [activeCategory, setActiveCategory] = useState("all");
+  const [dragOver, setDragOver] = useState(false);
 
   const copyPrompt = (id, text) => {
     // Try modern clipboard API first, fallback to execCommand
@@ -2298,11 +2299,33 @@ function Prompts({ data, save, isOwner }) {
   };
 
   const handleImageUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const file = e.target?.files?.[0] || e;
+    if (!file || !(file instanceof File)) return;
     const reader = new FileReader();
     reader.onload = (ev) => setForm(f => ({ ...f, imageUrl: ev.target.result }));
     reader.readAsDataURL(file);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file && file.type.startsWith("image/")) {
+      handleImageUpload(file);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
   };
 
   const filtered = activeCategory === "all"
@@ -2447,13 +2470,32 @@ function Prompts({ data, save, isOwner }) {
               <input type="text" className="form-input" placeholder="URL da imagem (https://...)"
                 value={typeof form.imageUrl === "string" && !form.imageUrl.startsWith("data:") ? form.imageUrl : ""}
                 onChange={e => setForm({ ...form, imageUrl: e.target.value })} style={{ marginBottom: 8 }} />
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-                <label className="btn btn-ghost btn-sm" style={{ cursor: "pointer" }}>
-                  <Icon path={icons.upload} size={13} /> Upload local
-                  <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageUpload} />
-                </label>
-                {form.imageUrl && <span style={{ fontSize: 11, color: "var(--green)" }}>✓ Imagem carregada</span>}
-              </div>
+              <label
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                style={{
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                  gap: 8, padding: "20px 16px", marginTop: 6,
+                  border: dragOver ? "2px dashed var(--accent)" : "2px dashed rgba(255,255,255,0.12)",
+                  borderRadius: 12, cursor: "pointer",
+                  background: dragOver ? "rgba(240,165,0,0.08)" : "rgba(255,255,255,0.02)",
+                  transition: "all 0.2s ease",
+                  textAlign: "center",
+                }}
+              >
+                <Icon path={icons.upload} size={22} />
+                <div style={{ fontSize: 13, fontWeight: 600, color: dragOver ? "var(--accent)" : "var(--text)" }}>
+                  {dragOver ? "Solte a imagem aqui" : "Arraste uma imagem ou clique para enviar"}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--muted)" }}>PNG, JPG, WEBP</div>
+                <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageUpload} />
+              </label>
+              {form.imageUrl && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
+                  <span style={{ fontSize: 11, color: "var(--green)" }}>✓ Imagem carregada</span>
+                </div>
+              )}
             </div>
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={() => setShowPromptModal(false)}>Cancelar</button>
